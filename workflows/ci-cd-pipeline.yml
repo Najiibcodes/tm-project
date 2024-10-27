@@ -1,0 +1,37 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main  # Run this workflow when changes are pushed to the main branch
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build_and_push_to_ecr:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Log in to Amazon ECR
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+      run: |
+        aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 156041431760.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+    - name: Build Docker image
+      run: |
+        docker build -t delta-ecsproject .
+        docker tag delta-ecsproject:latest 156041431760.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/delta-ecsproject:latest
+
+    - name: Push Docker image to Amazon ECR
+      run: |
+        docker push 156041431760.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/delta-ecsproject:latest
