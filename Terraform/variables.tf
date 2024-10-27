@@ -52,3 +52,8 @@ variable "environment" {
   description = "Environment tag"
   default     = "production"
 }
+
+variable "enable_deletion_protection" {
+  description = "Enable or disable deletion protection for the ALB"
+  default     = false
+}

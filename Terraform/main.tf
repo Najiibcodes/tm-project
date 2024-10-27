@@ -1,6 +1,18 @@
 provider "aws" {
   region = "eu-west-2"
-} 
+}
+
+
+terraform {
+  backend "s3" {
+    bucket = "threat-model-bucket-delta"      # Your S3 bucket name
+    key    = "ecs-delta-project/terraform/terraform.tfstate"  # Key path within the bucket
+    region = "eu-west-2"
+    encrypt = true
+  }
+}
+
+
 
 module "vpc" {
   source   = "./modules/vpc"
@@ -8,101 +20,64 @@ module "vpc" {
 }
 
 # Subnets
-resource "aws_subnet" "public_1" {
+module "subnets" {
+  source       = "./modules/subnets"
+  vpc_id       = module.vpc.vpc_id
+  subnet1_cidr = var.subnet1_cidr
+  subnet2_cidr = var.subnet2_cidr
+}
+
+
+module "ecs_cluster" {
+  source           = "./modules/ecs_cluster"
+  ecs_cluster_name = var.ecs_cluster_name
+}
+
+module "alb" {
+  source                  = "./modules/alb"
+  alb_name                = var.alb_name
+  security_group_id       = module.security_group.security_group_id
+  subnet_ids              = module.subnets.subnet_ids
+  enable_deletion_protection = var.enable_deletion_protection
+  environment             = var.environment
+  certificate_arn         = module.acm.certificate_arn # Reference ACM cert ARN
+  target_group_name       = "my-app-tg"
+  target_port             = var.container_port
   vpc_id                  = module.vpc.vpc_id
-  cidr_block              = var.subnet1_cidr
-  availability_zone       = "eu-west-2a"
-  map_public_ip_on_launch = true
-  tags = { Name = "public-subnet-1" }
 }
 
-resource "aws_subnet" "public_2" {
-  vpc_id                  = module.vpc.vpc_id
-  cidr_block              = var.subnet2_cidr
-  availability_zone       = "eu-west-2b"
-  map_public_ip_on_launch = true
-  tags = { Name = "public-subnet-2" }
+
+module "security_group" {
+  source         = "./modules/security_group"
+  vpc_id         = module.vpc.vpc_id
+  container_port = var.container_port
 }
 
-# ECS Cluster
-resource "aws_ecs_cluster" "cluster" {
-  name = var.ecs_cluster_name
-  setting {
-    name  = "containerInsights"
-    value = "enabled"
-  }
+
+module "network" {
+  source     = "./modules/network"
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.subnets.subnet_ids
 }
 
-# ALB and Target Group Configuration
-resource "aws_lb" "alb" {
-  name               = var.alb_name
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.ecs_sg.id]
-  subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
 
-  enable_deletion_protection = false
-
-  tags = { Environment = var.environment }
+module "route53" {
+  source                    = "./modules/route53"
+  domain_name               = "najiib.co.uk"
+  subdomain_name            = "www.najiib.co.uk"
+  alb_dns_name              = module.alb.alb_dns_name
+  alb_zone_id               = module.alb.alb_zone_id
+  domain_validation_options = module.acm.domain_validation_options
+  zone_id                   = aws_route53_zone.najiib.zone_id
 }
 
-# Security Group for ECS Tasks and ALB
-resource "aws_security_group" "ecs_sg" {
-  vpc_id = module.vpc.vpc_id
-  description = "Security group for ECS and ALB"
 
-  # Allow inbound traffic on port 3000 (or the container port you specified) for ECS tasks
-  ingress {
-    from_port   = var.container_port
-    to_port     = var.container_port
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
-  # Allow all outbound traffic
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
-  tags = {
-    Name = "ecs-security-group"
-  }
+# ACM Certificate for najiib.co.uk
+module "acm" {
+  source      = "./modules/acm"
+  domain_name = "najiib.co.uk"
+  environment = var.environment
 }
 
-# Internet Gateway
-resource "aws_internet_gateway" "igw" {
-  vpc_id = module.vpc.vpc_id
-
-  tags = {
-    Name = "main-igw"
-  }
-}
-
-# Route Table for Public Subnets
-resource "aws_route_table" "public" {
-  vpc_id = module.vpc.vpc_id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-
-  tags = {
-    Name = "public-route-table"
-  }
-}
-
-# Associate Route Table with Subnet 1
-resource "aws_route_table_association" "public_1" {
-  subnet_id      = aws_subnet.public_1.id
-  route_table_id = aws_route_table.public.id
-}
-
-# Associate Route Table with Subnet 2
-resource "aws_route_table_association" "public_2" {
-  subnet_id      = aws_subnet.public_2.id
-  route_table_id = aws_route_table.public.id
-}
