@@ -62,14 +62,16 @@ module "network" {
 
 
 module "route53" {
-  source                    = "./modules/route53"
-  domain_name               = "najiib.co.uk"
-  subdomain_name            = "www.najiib.co.uk"
-  alb_dns_name              = module.alb.alb_dns_name
-  alb_zone_id               = module.alb.alb_zone_id
+  source = "./modules/route53"
+  domain_name = "najiib.co.uk"
+  subdomain_name = "www.najiib.co.uk"
+  alb_dns_name = module.alb.alb_dns_name
+  alb_zone_id = module.alb.alb_zone_id
   domain_validation_options = module.acm.domain_validation_options
-  zone_id                   = aws_route53_zone.najiib.zone_id
+  # Corrected reference for zone_id
+  zone_id = module.route53.zone_id
 }
+
 
 
 
